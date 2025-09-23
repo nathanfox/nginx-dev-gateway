@@ -1,391 +1,342 @@
 #!/bin/bash
 
+# NGINX Dev Gateway Management Script
+# Enhanced version with modular libraries
+
 set -e
 
-# Configuration
-IMAGE_NAME="${IMAGE_NAME:-nginx-dev-gateway}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
-REGISTRY="${REGISTRY:-}"
-NAMESPACE="${NAMESPACE:-}"  # Can be set via environment variable
-ROUTES_FILE=""
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Source all library modules
+LIB_DIR="${SCRIPT_DIR}/scripts/lib"
 
-# Functions
-print_usage() {
+# Check if libraries exist
+if [ ! -d "$LIB_DIR" ]; then
+    echo "Error: Library directory not found: $LIB_DIR"
+    echo "Please ensure the scripts/lib directory exists with required modules"
+    exit 1
+fi
+
+# Source libraries
+source "$LIB_DIR/common.sh"
+export COMMON_SOURCED=1
+
+source "$LIB_DIR/docker.sh"
+export DOCKER_SOURCED=1
+
+source "$LIB_DIR/k8s.sh"
+export K8S_SOURCED=1
+
+source "$LIB_DIR/config.sh"
+export CONFIG_SOURCED=1
+
+source "$LIB_DIR/validation.sh"
+export VALIDATION_SOURCED=1
+
+# Script metadata
+readonly VERSION="2.0.0"
+readonly SCRIPT_NAME=$(basename "$0")
+
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n|--namespace)
+                export NAMESPACE="$2"
+                shift 2
+                ;;
+            -r|--registry)
+                export REGISTRY="$2"
+                shift 2
+                ;;
+            -i|--image)
+                export IMAGE_NAME="$2"
+                shift 2
+                ;;
+            -t|--tag)
+                export IMAGE_TAG="$2"
+                shift 2
+                ;;
+            -d|--debug)
+                export DEBUG=1
+                shift
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -v|--version)
+                echo "$SCRIPT_NAME version $VERSION"
+                exit 0
+                ;;
+            -*)
+                # If no further arguments, might be a typo for help
+                if [ $# -eq 1 ]; then
+                    log_error "Unknown option: $1"
+                    show_help
+                    exit 1
+                fi
+                # Otherwise break to let command handler deal with it
+                break
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    # Return remaining arguments
+    echo "$@"
+}
+
+# Show help message
+show_help() {
     cat << EOF
-Usage: $0 <command> [options]
+NGINX Dev Gateway Management Script v$VERSION
 
-Commands:
-    build                   Build the Docker image
-    push                    Push image to registry
-    deploy                  Deploy gateway to namespace
-    update-routes [file]    Update route configuration
-    test                    Run tests
-    logs                    View gateway logs
-    status                  Check deployment status
-    reload                  Reload NGINX configuration
-    uninstall               Remove gateway from namespace
-    port-forward [port]     Port-forward to local machine
+Usage: $SCRIPT_NAME [OPTIONS] COMMAND [ARGS]
 
-Options:
-    -n, --namespace     Target namespace (or set NAMESPACE env var)
-    -r, --registry      Docker registry URL (or set REGISTRY env var)
-    -t, --tag          Docker image tag (or set IMAGE_TAG env var)
-    -h, --help         Show this help message
+OPTIONS:
+    -n, --namespace NAMESPACE   Kubernetes namespace (or set NAMESPACE env var)
+    -r, --registry REGISTRY     Docker registry URL (or set REGISTRY env var)
+    -i, --image IMAGE           Docker image name (default: nginx-dev-gateway)
+    -t, --tag TAG               Docker image tag (default: latest)
+    -d, --debug                 Enable debug output
+    -v, --version              Show version
+    -h, --help                 Show this help message
 
-Environment Variables:
-    NAMESPACE          Default namespace for operations
-    REGISTRY           Default Docker registry
-    IMAGE_NAME         Docker image name (default: nginx-dev-gateway)
-    IMAGE_TAG          Docker image tag (default: latest)
+COMMANDS:
+    === Docker Operations ===
+    build                      Build the Docker image
+    push                       Push image to registry
+    scan                       Scan image for vulnerabilities
 
-Examples:
-    # Using environment variable
-    export NAMESPACE=developer-john
-    $0 deploy
-    $0 logs
+    === Kubernetes Operations ===
+    deploy                     Deploy gateway to namespace
+    uninstall                  Remove gateway from namespace
+    status                     Show deployment status
+    logs [OPTIONS]             Show gateway logs
+        --follow|-f            Follow log output
+        --tail N               Number of lines to show
+    scale REPLICAS            Scale deployment replicas
+    restart                   Restart deployment
+    exec COMMAND              Execute command in pod
 
-    # Using command line flag (overrides env var)
-    $0 deploy -n developer-jane
+    === Configuration ===
+    update-routes [FILE]       Update route configuration
+    backup-routes [DIR]        Backup current routes
+    restore-routes [FILE]      Restore routes from backup
+    diff-routes FILE          Show diff between current and new routes
+    list-routes               List current routes
+    export-routes [FILE]      Export routes to file
+    generate-routes           Generate example routes template
+    update-env KEY=VAL...     Update environment variables
+    get-env                   Show current environment variables
 
-    # Mixed usage
-    export NAMESPACE=developer-john
-    $0 status                        # uses developer-john
-    $0 status -n developer-jane      # uses developer-jane
+    === Port Forwarding ===
+    port-forward [LOCAL:REMOTE]  Forward local port to gateway (default: 8080:80)
+    pf                          Alias for port-forward
+
+    === Validation & Testing ===
+    validate                   Run comprehensive validation
+    test [TYPE]               Run test suite
+        all                   Run all tests (default)
+        deployment           Test deployment
+        routes               Test route configuration
+        backends             Test backend services
+        nginx                Test NGINX configuration
+    check-dns SERVICE         Check DNS resolution
+    check-backend SERVICE     Test backend connectivity
+
+    === Maintenance ===
+    reload                    Reload NGINX configuration
+    cleanup                   Clean up old Docker images
+    events                    Show Kubernetes events
+    backup-all               Backup all configurations
+
+EXAMPLES:
+    # Deploy to namespace
+    $SCRIPT_NAME -n dev-team deploy
+
+    # Build and push with registry
+    $SCRIPT_NAME -r myregistry.io/org build push deploy -n dev-team
+
+    # Update routes
+    $SCRIPT_NAME -n dev-team update-routes my-routes.conf
+
+    # Validate configuration
+    $SCRIPT_NAME -n dev-team validate
+
+    # Run tests
+    $SCRIPT_NAME -n dev-team test all
+
+    # Port forward
+    $SCRIPT_NAME -n dev-team port-forward 8080:80
+
+ENVIRONMENT VARIABLES:
+    NAMESPACE               Default namespace for operations
+    REGISTRY               Docker registry URL
+    IMAGE_NAME             Docker image name (default: nginx-dev-gateway)
+    IMAGE_TAG              Docker image tag (default: latest)
+    DEBUG                  Enable debug output (0/1)
+
+For more information, see: https://github.com/your-org/nginx-dev-gateway
 
 EOF
 }
 
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
+# Main command handler
+main() {
+    # Parse global options
+    REMAINING_ARGS=$(parse_args "$@")
+    set -- $REMAINING_ARGS
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1" >&2
-}
+    # Get command
+    local command="${1:-help}"
+    shift || true
 
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-check_namespace() {
-    if [ -z "$NAMESPACE" ]; then
-        log_error "Namespace is required. Use -n <namespace> or set NAMESPACE environment variable"
-        echo "Example: export NAMESPACE=developer-john"
-        exit 1
-    fi
-    log_info "Using namespace: ${NAMESPACE}"
-}
-
-check_kubectl() {
-    if ! command -v kubectl &> /dev/null; then
-        log_error "kubectl is not installed or not in PATH"
-        exit 1
-    fi
-}
-
-check_docker() {
-    if ! command -v docker &> /dev/null; then
-        log_error "docker is not installed or not in PATH"
-        exit 1
-    fi
-}
-
-# Build Docker image
-build_image() {
-    log_info "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
-    check_docker
-
-    docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" .
-
-    if [ $? -eq 0 ]; then
-        log_info "Image built successfully: ${IMAGE_NAME}:${IMAGE_TAG}"
-    else
-        log_error "Failed to build image"
-        exit 1
-    fi
-}
-
-# Push image to registry
-push_image() {
-    check_docker
-
-    if [ -z "$REGISTRY" ]; then
-        log_error "Registry not specified. Use -r <registry> or set REGISTRY environment variable"
-        exit 1
-    fi
-
-    local full_image="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-
-    log_info "Tagging image for registry: ${full_image}"
-    docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${full_image}"
-
-    log_info "Pushing image to registry: ${full_image}"
-    docker push "${full_image}"
-
-    if [ $? -eq 0 ]; then
-        log_info "Image pushed successfully"
-    else
-        log_error "Failed to push image"
-        exit 1
-    fi
-}
-
-# Deploy to Kubernetes
-deploy_gateway() {
-    check_namespace
-    check_kubectl
-
-    log_info "Deploying NGINX gateway to namespace: ${NAMESPACE}"
-
-    # Create namespace if it doesn't exist
-    kubectl create namespace "${NAMESPACE}" 2>/dev/null || true
-
-    # Apply configurations
-    kubectl apply -f k8s/base/configmap.yaml -n "${NAMESPACE}"
-
-    # Handle image registry if specified
-    if [ -n "$REGISTRY" ]; then
-        local full_image="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-        log_info "Using image from registry: ${full_image}"
-
-        # Apply deployment and update image in one step using kubectl set image
-        kubectl apply -f k8s/base/deployment.yaml -n "${NAMESPACE}"
-        kubectl set image deployment/nginx-gateway nginx="${full_image}" -n "${NAMESPACE}"
-    else
-        log_warning "No REGISTRY specified. Using local image (may fail if cluster can't access it)"
-        kubectl apply -f k8s/base/deployment.yaml -n "${NAMESPACE}"
-    fi
-
-    kubectl apply -f k8s/base/service.yaml -n "${NAMESPACE}"
-
-    # Wait for deployment
-    log_info "Waiting for deployment to be ready..."
-    kubectl rollout status deployment/nginx-gateway -n "${NAMESPACE}" --timeout=60s
-
-    if [ $? -eq 0 ]; then
-        log_info "Gateway deployed successfully"
-        log_info "To access the gateway, run:"
-        echo "    $0 port-forward -n ${NAMESPACE} 8080"
-    else
-        log_error "Deployment failed"
-        exit 1
-    fi
-}
-
-# Update route configuration
-update_routes() {
-    check_namespace
-    check_kubectl
-
-    if [ -n "$1" ]; then
-        ROUTES_FILE="$1"
-        if [ ! -f "$ROUTES_FILE" ]; then
-            log_error "Routes file not found: ${ROUTES_FILE}"
-            exit 1
-        fi
-
-        log_info "Updating routes from file: ${ROUTES_FILE}"
-        kubectl create configmap nginx-gateway-routes \
-            --from-file="${ROUTES_FILE}" \
-            --dry-run=client -o yaml | \
-            kubectl apply -f - -n "${NAMESPACE}"
-    else
-        log_info "Opening ConfigMap for editing..."
-        kubectl edit configmap nginx-gateway-routes -n "${NAMESPACE}"
-    fi
-
-    # Reload NGINX
-    reload_nginx
-}
-
-# Reload NGINX configuration
-reload_nginx() {
-    check_namespace
-    check_kubectl
-
-    log_info "Reloading NGINX configuration in namespace: ${NAMESPACE}"
-
-    # Get pod name
-    POD=$(kubectl get pods -n "${NAMESPACE}" -l app=nginx-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-
-    if [ -z "$POD" ]; then
-        log_error "No gateway pod found in namespace: ${NAMESPACE}"
-        exit 1
-    fi
-
-    kubectl exec -n "${NAMESPACE}" "$POD" -- nginx -s reload
-
-    if [ $? -eq 0 ]; then
-        log_info "NGINX configuration reloaded successfully"
-    else
-        log_error "Failed to reload NGINX configuration"
-        exit 1
-    fi
-}
-
-# View logs
-view_logs() {
-    check_namespace
-    check_kubectl
-
-    log_info "Viewing logs for gateway in namespace: ${NAMESPACE}"
-    kubectl logs -f deployment/nginx-gateway -n "${NAMESPACE}"
-}
-
-# Check status
-check_status() {
-    check_namespace
-    check_kubectl
-
-    log_info "Checking gateway status in namespace: ${NAMESPACE}"
-
-    echo -e "\n${GREEN}Deployment:${NC}"
-    kubectl get deployment nginx-gateway -n "${NAMESPACE}"
-
-    echo -e "\n${GREEN}Pods:${NC}"
-    kubectl get pods -l app=nginx-gateway -n "${NAMESPACE}"
-
-    echo -e "\n${GREEN}Service:${NC}"
-    kubectl get service nginx-gateway -n "${NAMESPACE}"
-
-    echo -e "\n${GREEN}ConfigMap:${NC}"
-    kubectl get configmap nginx-gateway-routes -n "${NAMESPACE}" 2>/dev/null || echo "No routes ConfigMap found"
-}
-
-# Port forward
-port_forward() {
-    check_namespace
-    check_kubectl
-
-    local port="${1:-8080}"
-
-    log_info "Starting port-forward from localhost:${port} to gateway in namespace: ${NAMESPACE}"
-    log_info "Access the gateway at: http://localhost:${port}"
-    log_info "Press Ctrl+C to stop"
-
-    kubectl port-forward -n "${NAMESPACE}" service/nginx-gateway "${port}:80"
-}
-
-# Uninstall gateway
-uninstall_gateway() {
-    check_namespace
-    check_kubectl
-
-    log_warning "Removing gateway from namespace: ${NAMESPACE}"
-
-    kubectl delete -f k8s/base/service.yaml -n "${NAMESPACE}" 2>/dev/null || true
-    kubectl delete -f k8s/base/deployment.yaml -n "${NAMESPACE}" 2>/dev/null || true
-    kubectl delete -f k8s/base/configmap.yaml -n "${NAMESPACE}" 2>/dev/null || true
-
-    log_info "Gateway removed from namespace: ${NAMESPACE}"
-}
-
-# Run tests
-run_tests() {
-    check_namespace
-    check_kubectl
-
-    log_info "Running tests in namespace: ${NAMESPACE}"
-
-    # Check if gateway is deployed
-    if ! kubectl get deployment nginx-gateway -n "${NAMESPACE}" &>/dev/null; then
-        log_error "Gateway not deployed in namespace: ${NAMESPACE}"
-        exit 1
-    fi
-
-    # Run basic connectivity test
-    POD=$(kubectl get pods -n "${NAMESPACE}" -l app=nginx-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-
-    if [ -z "$POD" ]; then
-        log_error "No gateway pod found"
-        exit 1
-    fi
-
-    log_info "Testing health endpoint..."
-    kubectl exec -n "${NAMESPACE}" "$POD" -- curl -s http://localhost/health
-
-    if [ $? -eq 0 ]; then
-        log_info "Health check passed"
-    else
-        log_error "Health check failed"
-        exit 1
-    fi
-}
-
-# Parse command line arguments
-COMMAND=""
-POSITIONAL=()
-
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -n|--namespace)
-            NAMESPACE="$2"
-            shift 2
+    # Handle commands
+    case "$command" in
+        # Docker operations
+        build)
+            build_image "$@"
             ;;
-        -r|--registry)
-            REGISTRY="$2"
-            shift 2
+        push)
+            push_image "$@"
             ;;
-        -t|--tag)
-            IMAGE_TAG="$2"
-            shift 2
+        scan)
+            scan_image "$@"
             ;;
-        -h|--help)
-            print_usage
-            exit 0
+
+        # Kubernetes operations
+        deploy)
+            deploy_gateway "$@"
             ;;
-        build|push|deploy|update-routes|test|logs|status|reload|uninstall|port-forward)
-            COMMAND="$1"
-            shift
+        uninstall)
+            uninstall_gateway "$@"
             ;;
+        status)
+            get_status "$@"
+            ;;
+        logs)
+            # Parse logs options
+            local follow=false
+            local tail=50
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    -f|--follow)
+                        follow=true
+                        shift
+                        ;;
+                    --tail)
+                        tail="$2"
+                        shift 2
+                        ;;
+                    *)
+                        break
+                        ;;
+                esac
+            done
+            get_logs "$NAMESPACE" "$follow" "$tail"
+            ;;
+        scale)
+            scale_deployment "$NAMESPACE" "$@"
+            ;;
+        restart)
+            restart_deployment "$@"
+            ;;
+        exec)
+            exec_in_pod "$NAMESPACE" "$@"
+            ;;
+
+        # Configuration
+        update-routes)
+            update_routes "$NAMESPACE" "$@"
+            ;;
+        backup-routes)
+            backup_routes "$NAMESPACE" "$@"
+            ;;
+        restore-routes)
+            restore_routes "$NAMESPACE" "$@"
+            ;;
+        diff-routes)
+            diff_routes "$NAMESPACE" "$@"
+            ;;
+        list-routes)
+            list_routes "$@"
+            ;;
+        export-routes)
+            export_routes "$NAMESPACE" "$@"
+            ;;
+        generate-routes)
+            generate_route_template "$@"
+            ;;
+        update-env)
+            update_env "$NAMESPACE" "$@"
+            ;;
+        get-env)
+            get_env_config "$@"
+            ;;
+
+        # Port forwarding
+        port-forward|pf)
+            # Parse port specification
+            local ports="${1:-8080:80}"
+            local local_port=$(echo "$ports" | cut -d: -f1)
+            local remote_port=$(echo "$ports" | cut -d: -f2)
+            port_forward "$NAMESPACE" "$local_port" "$remote_port"
+            ;;
+
+        # Validation & testing
+        validate)
+            validate_all "$@"
+            ;;
+        test)
+            run_tests "$NAMESPACE" "$@"
+            ;;
+        check-dns)
+            check_dns_resolution "$NAMESPACE" "$@"
+            ;;
+        check-backend)
+            test_backend_connectivity "$NAMESPACE" "$@"
+            ;;
+
+        # Maintenance
+        reload)
+            reload_nginx "$@"
+            ;;
+        cleanup)
+            cleanup_images "$@"
+            ;;
+        events)
+            get_events "$@"
+            ;;
+        backup-all)
+            log_info "Backing up all configurations..."
+            backup_routes "$NAMESPACE"
+            kubectl get deployment "$DEFAULT_DEPLOYMENT" -n "$NAMESPACE" -o yaml > "backups/deployment-$(date +%Y%m%d_%H%M%S).yaml"
+            kubectl get service "$DEFAULT_SERVICE" -n "$NAMESPACE" -o yaml > "backups/service-$(date +%Y%m%d_%H%M%S).yaml"
+            log_info "Backup complete"
+            ;;
+
+        # Help
+        help|--help|-h)
+            show_help
+            ;;
+
+        # Version
+        version|--version|-v)
+            echo "$SCRIPT_NAME version $VERSION"
+            ;;
+
         *)
-            POSITIONAL+=("$1")
-            shift
+            log_error "Unknown command: $command"
+            echo "Run '$SCRIPT_NAME help' for usage information"
+            exit 1
             ;;
     esac
-done
+}
 
-# Execute command
-case $COMMAND in
-    build)
-        build_image
-        ;;
-    push)
-        push_image
-        ;;
-    deploy)
-        deploy_gateway
-        ;;
-    update-routes)
-        update_routes "${POSITIONAL[0]}"
-        ;;
-    test)
-        run_tests
-        ;;
-    logs)
-        view_logs
-        ;;
-    status)
-        check_status
-        ;;
-    reload)
-        reload_nginx
-        ;;
-    uninstall)
-        uninstall_gateway
-        ;;
-    port-forward)
-        port_forward "${POSITIONAL[0]}"
-        ;;
-    *)
-        log_error "Unknown command: ${COMMAND}"
-        print_usage
-        exit 1
-        ;;
-esac
+# Run main function
+main "$@"

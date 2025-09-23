@@ -30,6 +30,7 @@ kubeconfig
 # Test artifacts
 tests/test-results/
 tests/coverage/
+tests/reports/
 *.test
 
 # Temporary files

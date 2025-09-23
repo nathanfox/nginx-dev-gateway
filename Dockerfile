@@ -1,0 +1,44 @@
+FROM nginx:1.25-alpine
+
+# Install required packages
+RUN apk add --no-cache \
+    bash \
+    curl \
+    gettext \
+    nss-tools \
+    ca-certificates
+
+# Create nginx user and directories
+RUN mkdir -p /var/cache/nginx /var/log/nginx /etc/nginx/conf.d \
+    && chown -R nginx:nginx /var/cache/nginx /var/log/nginx
+
+# Copy nginx configuration templates
+COPY nginx/nginx.conf.template /etc/nginx/nginx.conf.template
+COPY nginx/conf.d/ /etc/nginx/conf.d/
+COPY nginx/includes/ /etc/nginx/includes/
+
+# Copy entrypoint script
+COPY nginx/scripts/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+# Create directory for ConfigMap volume mount and fix permissions
+RUN mkdir -p /etc/nginx/routes \
+    && chown -R nginx:nginx /etc/nginx \
+    && chmod -R 755 /etc/nginx
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Expose port
+EXPOSE 80
+
+# Set working directory
+WORKDIR /etc/nginx
+
+# Run as root for now (TODO: fix permissions later)
+# USER nginx
+
+# Set entrypoint
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

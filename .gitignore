@@ -1,0 +1,55 @@
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+
+# Build artifacts
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Docker
+.dockerignore.local
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+.kube/
+
+# Test artifacts
+tests/test-results/
+tests/coverage/
+*.test
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Certificates
+*.pem
+*.key
+*.crt
+*.csr
+
+# Local configuration
+local-config/
+*-local.yaml
+*-local.yml

@@ -1,0 +1,35 @@
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    # Health check endpoint
+    location /health {
+        access_log off;
+        default_type text/plain;
+        return 200 "OK\n";
+    }
+
+    # Metrics endpoint
+    location /metrics {
+        access_log off;
+        stub_status on;
+        allow 127.0.0.1;
+        deny all;
+    }
+
+    # Include route configurations
+    include /etc/nginx/routes/*.conf;
+
+    # Default backend (404 for undefined routes)
+    location / {
+        default_type application/json;
+        return 404 '{"error": "Route not found", "namespace": "${CURRENT_NAMESPACE}"}\n';
+    }
+
+    # Error pages
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}

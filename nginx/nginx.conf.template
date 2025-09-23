@@ -1,0 +1,66 @@
+user nginx;
+worker_processes ${NGINX_WORKER_PROCESSES};
+error_log /var/log/nginx/error.log ${LOG_LEVEL};
+pid /tmp/nginx.pid;
+
+events {
+    worker_connections ${NGINX_WORKER_CONNECTIONS};
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    log_format json_combined escape=json
+        '{'
+            '"time_local":"$time_local",'
+            '"remote_addr":"$remote_addr",'
+            '"request":"$request",'
+            '"status": "$status",'
+            '"body_bytes_sent":"$body_bytes_sent",'
+            '"request_time":"$request_time",'
+            '"http_referrer":"$http_referer",'
+            '"http_user_agent":"$http_user_agent",'
+            '"upstream_addr":"$upstream_addr",'
+            '"upstream_response_time":"$upstream_response_time",'
+            '"namespace":"${CURRENT_NAMESPACE}",'
+            '"gateway_instance":"nginx-gateway-${CURRENT_NAMESPACE}"'
+        '}';
+
+    access_log /var/log/nginx/access.log ${ACCESS_LOG_FORMAT};
+
+    # Performance settings
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript
+               application/json application/javascript application/xml+rss
+               application/rss+xml application/atom+xml image/svg+xml
+               text/x-js text/x-cross-domain-policy application/x-font-ttf
+               application/x-font-opentype application/vnd.ms-fontobject
+               image/x-icon;
+
+    # DNS resolver for Kubernetes services
+    resolver kube-dns.kube-system.svc.cluster.local valid=30s ipv6=off;
+    resolver_timeout 10s;
+
+    # Proxy cache
+    proxy_cache_path /var/cache/nginx/proxy levels=1:2 keys_zone=proxy_cache:10m max_size=100m inactive=60m use_temp_path=off;
+
+    # Include additional configuration files
+    include /etc/nginx/conf.d/*.conf;
+}

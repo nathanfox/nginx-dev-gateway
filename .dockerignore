@@ -1,0 +1,45 @@
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Kubernetes manifests (not needed in image)
+k8s/
+examples/
+
+# Scripts (except docker-entrypoint.sh)
+scripts/
+manage.sh
+
+# Tests
+tests/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Build artifacts
+*.log
+*.pid
+
+# Environment files
+.env
+.env.*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Local configuration
+local-config/
+*-local.yaml
+*-local.yml

@@ -16,10 +16,25 @@ spec:
         app: nginx-gateway
         component: proxy
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101  # nginx user UID
+        runAsGroup: 101  # nginx group GID
+        fsGroup: 101
       containers:
       - name: nginx
         image: nginx-dev-gateway:latest
         imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 101
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
         ports:
         - name: http
           containerPort: 80

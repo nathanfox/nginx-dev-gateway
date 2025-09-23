@@ -4,6 +4,9 @@ set -e
 echo "Starting NGINX Dev Gateway..."
 echo "Namespace: ${CURRENT_NAMESPACE:-not set}"
 
+# Create temp directory if it doesn't exist (for volume mounts)
+mkdir -p /tmp/nginx 2>/dev/null || true
+
 # Get namespace from Kubernetes if not set
 if [ -z "${CURRENT_NAMESPACE}" ]; then
     if [ -f /var/run/secrets/kubernetes.io/serviceaccount/namespace ]; then
@@ -28,15 +31,15 @@ export PROXY_BUFFERS=${PROXY_BUFFERS:-"8 4k"}
 
 # Process nginx.conf template
 echo "Processing nginx.conf template..."
-envsubst < /etc/nginx/nginx.conf.template > /tmp/nginx.conf
+envsubst < /etc/nginx/nginx.conf.template > /tmp/nginx/nginx.conf
 # Copy to final location
-cp /tmp/nginx.conf /etc/nginx/nginx.conf 2>/dev/null || cat /tmp/nginx.conf > /etc/nginx/nginx.conf
+cp /tmp/nginx/nginx.conf /etc/nginx/nginx.conf 2>/dev/null || cat /tmp/nginx/nginx.conf > /etc/nginx/nginx.conf
 
 # Process default.conf template
 echo "Processing default.conf template..."
-envsubst < /etc/nginx/conf.d/default.conf.template > /tmp/default.conf
+envsubst < /etc/nginx/conf.d/default.conf.template > /tmp/nginx/default.conf
 # Copy to final location
-cp /tmp/default.conf /etc/nginx/conf.d/default.conf 2>/dev/null || cat /tmp/default.conf > /etc/nginx/conf.d/default.conf
+cp /tmp/nginx/default.conf /etc/nginx/conf.d/default.conf 2>/dev/null || cat /tmp/nginx/default.conf > /etc/nginx/conf.d/default.conf
 
 # Process proxy.conf template with specific environment variables only
 echo "Processing proxy.conf template..."

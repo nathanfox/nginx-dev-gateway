@@ -38,7 +38,11 @@ envsubst < /etc/nginx/conf.d/default.conf.template > /tmp/default.conf
 # Copy to final location
 cp /tmp/default.conf /etc/nginx/conf.d/default.conf 2>/dev/null || cat /tmp/default.conf > /etc/nginx/conf.d/default.conf
 
-# Don't process proxy.conf and websocket.conf - they don't have env vars to replace
+# Process proxy.conf template with specific environment variables only
+echo "Processing proxy.conf template..."
+envsubst '${PROXY_CONNECT_TIMEOUT} ${PROXY_SEND_TIMEOUT} ${PROXY_READ_TIMEOUT} ${PROXY_BUFFER_SIZE} ${PROXY_BUFFERS} ${CURRENT_NAMESPACE}' \
+    < /etc/nginx/includes/proxy.conf.template > /etc/nginx/includes/proxy.conf
+
 echo "Proxy and websocket configurations ready"
 
 # Process route configuration files if they exist

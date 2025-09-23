@@ -41,6 +41,10 @@ spec:
           value: "60s"
         - name: PROXY_READ_TIMEOUT
           value: "60s"
+        - name: PROXY_BUFFER_SIZE
+          value: "4k"
+        - name: PROXY_BUFFERS
+          value: "8 4k"
         volumeMounts:
         - name: routes-config
           mountPath: /etc/nginx/routes

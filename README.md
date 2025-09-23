@@ -237,17 +237,34 @@ Configure the gateway behavior through environment variables:
 ```yaml
 env:
 - name: NGINX_WORKER_PROCESSES
-  value: "auto"
+  value: "auto"              # Number of nginx worker processes
 - name: NGINX_WORKER_CONNECTIONS
-  value: "1024"
+  value: "1024"              # Max connections per worker
 - name: LOG_LEVEL
-  value: "info"
+  value: "info"              # Nginx log level (debug, info, notice, warn, error, crit)
 - name: PROXY_CONNECT_TIMEOUT
-  value: "60s"
+  value: "60s"               # Timeout for connecting to upstream
 - name: PROXY_SEND_TIMEOUT
-  value: "60s"
+  value: "60s"               # Timeout for sending to upstream
 - name: PROXY_READ_TIMEOUT
-  value: "60s"
+  value: "60s"               # Timeout for reading from upstream
+- name: PROXY_BUFFER_SIZE
+  value: "4k"                # Buffer size for proxy responses
+- name: PROXY_BUFFERS
+  value: "8 4k"              # Number and size of buffers
+```
+
+You can also update these values on a running deployment:
+
+```bash
+# Update timeout values
+kubectl set env deployment/nginx-gateway \
+  PROXY_CONNECT_TIMEOUT=30s \
+  PROXY_READ_TIMEOUT=120s \
+  -n developer-john
+
+# View current environment variables
+kubectl get deployment nginx-gateway -n developer-john -o jsonpath='{.spec.template.spec.containers[0].env[*]}' | jq
 ```
 
 ### Custom Routes File

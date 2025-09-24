@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: websocket-service
+  labels:
+    app: websocket-service
+    type: test-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: websocket-service
+  template:
+    metadata:
+      labels:
+        app: websocket-service
+        type: test-service
+    spec:
+      containers:
+      - name: websocket
+        image: websocket-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SERVICE_NAME
+          value: "websocket-service"
+        - name: PORT
+          value: "8080"
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: websocket-service
+  labels:
+    app: websocket-service
+    type: test-service
+spec:
+  selector:
+    app: websocket-service
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  type: ClusterIP
+  sessionAffinity: ClientIP  # Important for WebSocket connections

@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slow-service
+  labels:
+    app: slow-service
+    type: test-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: slow-service
+  template:
+    metadata:
+      labels:
+        app: slow-service
+        type: test-service
+    spec:
+      containers:
+      - name: slow
+        image: slow-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SERVICE_NAME
+          value: "slow-service"
+        - name: PORT
+          value: "8080"
+        - name: DEFAULT_DELAY
+          value: "5000"
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5  # Important: health check should be fast
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slow-service
+  labels:
+    app: slow-service
+    type: test-service
+spec:
+  selector:
+    app: slow-service
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  type: ClusterIP

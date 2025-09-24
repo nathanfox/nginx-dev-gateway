@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-gateway-test-routes
+  labels:
+    app: nginx-gateway
+    type: test-routes
+data:
+  test-routes.conf: |
+    # Test service routes for NGINX Dev Gateway
+    # These routes are for testing purposes only
+
+    # Echo service - HTTP echo testing
+    location /test/echo/ {
+        proxy_pass http://echo-service.NAMESPACE_PLACEHOLDER.svc.cluster.local:8080/;
+        include /etc/nginx/includes/proxy.conf;
+    }
+
+    # WebSocket service - WebSocket testing
+    location /test/ws {
+        proxy_pass http://websocket-service.NAMESPACE_PLACEHOLDER.svc.cluster.local:8080/ws;
+        include /etc/nginx/includes/websocket.conf;
+    }
+
+    # Mock API - REST API testing
+    location /test/api/ {
+        proxy_pass http://mock-api.NAMESPACE_PLACEHOLDER.svc.cluster.local:8080/api/;
+        include /etc/nginx/includes/proxy.conf;
+    }
+
+    # Slow service - Timeout and delay testing
+    location /test/slow/ {
+        proxy_pass http://slow-service.NAMESPACE_PLACEHOLDER.svc.cluster.local:8080/;
+        include /etc/nginx/includes/proxy.conf;
+
+        # Increase timeout for slow service testing
+        proxy_connect_timeout 120;
+        proxy_send_timeout 120;
+        proxy_read_timeout 120;
+    }
+
+    # Health check for test services
+    location /test/health {
+        default_type application/json;
+        return 200 '{"status":"ok","test_routes":"enabled"}\n';
+    }

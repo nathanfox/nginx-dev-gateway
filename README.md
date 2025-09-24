@@ -115,28 +115,44 @@ export NAMESPACE=developer-john
 
 ### Example Route Configuration
 
+> **Important**: Always use variables in `proxy_pass` for Kubernetes services to ensure proper DNS resolution. See [Routing Guide](docs/routing-guide.md) for details.
+
 ```nginx
-# Route to service in same namespace
+# Route to service in same namespace (with runtime DNS resolution)
 location /api/myapp/ {
-    proxy_pass http://myapp-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080/;
+    set $myapp_upstream myapp-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080;
+    proxy_pass http://$myapp_upstream/;
     include /etc/nginx/includes/proxy.conf;
 }
 
 # Route to service in different namespace
 location /api/billing/ {
-    proxy_pass http://billing-service.dev.svc.cluster.local:3000/;
+    set $billing_upstream billing-service.dev.svc.cluster.local:3000;
+    proxy_pass http://$billing_upstream/;
     include /etc/nginx/includes/proxy.conf;
 }
 
-# WebSocket route
+# WebSocket route (requires special configuration)
 location /ws/notifications {
-    proxy_pass http://notification-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080;
-    include /etc/nginx/includes/websocket.conf;
+    set $ws_upstream notification-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080;
+    proxy_pass http://$ws_upstream/;
+
+    # Required WebSocket headers
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_buffering off;
+
+    # Long timeouts for persistent connections
+    proxy_connect_timeout 7d;
+    proxy_send_timeout 7d;
+    proxy_read_timeout 7d;
 }
 
 # Route with path rewriting
 location ~ ^/svc/([a-z]+)/(.*)$ {
-    proxy_pass http://$1-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080/$2;
+    set $service_upstream $1-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080;
+    proxy_pass http://$service_upstream/$2;
     include /etc/nginx/includes/proxy.conf;
 }
 ```
@@ -274,7 +290,8 @@ Create a custom routes file and apply it:
 ```nginx
 # my-routes.conf
 location /api/custom/ {
-    proxy_pass http://custom-service.${CURRENT_NAMESPACE}.svc.cluster.local:9000/;
+    set $custom_upstream custom-service.${CURRENT_NAMESPACE}.svc.cluster.local:9000;
+    proxy_pass http://$custom_upstream/;
     include /etc/nginx/includes/proxy.conf;
 }
 ```
@@ -315,6 +332,11 @@ location /api/custom/ {
    - Route not configured
    - Update routes: `./manage.sh update-routes -n <namespace>`
 
+4. **WebSocket Connection Issues**
+   - Ensure using variables in proxy_pass for runtime DNS resolution
+   - Check WebSocket headers are properly configured
+   - See [Routing Guide](docs/routing-guide.md#websocket-routing) for details
+
 ## Project Structure
 
 ```
@@ -332,12 +354,24 @@ nginx-dev-gateway/
 │       ├── deployment.yaml   # Gateway deployment
 │       └── service.yaml      # ClusterIP service
 ├── docs/                     # Documentation
-└── tests/                    # Test suites
+│   ├── api-gateway-plan.md  # Architecture design
+│   ├── routing-guide.md      # Routing configuration guide
+│   ├── kubectl-setup.md      # kubectl setup guide
+│   └── service-discovery.md  # Service discovery patterns
+├── tests/                    # Test suites
+└── test-services/           # Test service deployments
 ```
+
+## Documentation
+
+- [Routing Guide](docs/routing-guide.md) - **Essential reading** for configuring routes, especially WebSocket support
+- [Architecture Design](docs/api-gateway-plan.md) - Detailed implementation plan
+- [kubectl Setup Guide](docs/kubectl-setup.md) - Setting up kubectl aliases and helpers
+- [Service Discovery Patterns](docs/service-discovery.md) - Kubernetes service discovery patterns
 
 ## Contributing
 
-See [docs/api-gateway-plan.md](docs/api-gateway-plan.md) for the detailed implementation plan and architecture design.
+Contributions are welcome! Please read the documentation above to understand the architecture and routing patterns.
 
 ## License
 

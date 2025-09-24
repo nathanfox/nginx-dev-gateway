@@ -46,6 +46,11 @@ echo "Processing proxy.conf template..."
 envsubst '${PROXY_CONNECT_TIMEOUT} ${PROXY_SEND_TIMEOUT} ${PROXY_READ_TIMEOUT} ${PROXY_BUFFER_SIZE} ${PROXY_BUFFERS} ${CURRENT_NAMESPACE}' \
     < /etc/nginx/includes/proxy.conf.template > /etc/nginx/includes/proxy.conf
 
+# Process websocket.conf template
+echo "Processing websocket.conf template..."
+envsubst '${CURRENT_NAMESPACE}' \
+    < /etc/nginx/includes/websocket.conf.template > /etc/nginx/includes/websocket.conf
+
 echo "Proxy and websocket configurations ready"
 
 # Process route configuration files if they exist

@@ -366,6 +366,7 @@ nginx-dev-gateway/
 
 - [Routing Guide](docs/routing-guide.md) - **Essential reading** for configuring routes, especially WebSocket support
 - [Architecture Design](docs/api-gateway-plan.md) - Detailed implementation plan
+- [Roadmap & Future Enhancements](docs/roadmap.md) - Planned features and improvements
 - [kubectl Setup Guide](docs/kubectl-setup.md) - Setting up kubectl aliases and helpers
 - [Service Discovery Patterns](docs/service-discovery.md) - Kubernetes service discovery patterns
 

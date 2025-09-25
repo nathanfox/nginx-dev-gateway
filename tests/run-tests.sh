@@ -16,9 +16,6 @@ VERBOSE="${VERBOSE:-0}"
 QUIET="${QUIET:-0}"
 GENERATE_REPORT="${GENERATE_REPORT:-1}"
 
-# Colors for output
-readonly BOLD='\033[1m'
-
 # Show usage
 show_usage() {
     cat << EOF
@@ -110,8 +107,21 @@ run_integration_tests() {
                 total_tests=$((total_tests + 1))
             fi
         done
-    else
-        echo "No integration tests found in $integration_dir"
+    fi
+
+    # Also run route helper tests as part of integration
+    if [ -f "$SCRIPT_DIR/test-route-helpers.sh" ]; then
+        echo -e "\n${BOLD}Running: test-route-helpers.sh${NC}"
+        if bash "$SCRIPT_DIR/test-route-helpers.sh"; then
+            passed_tests=$((passed_tests + 1))
+        else
+            failed_tests=$((failed_tests + 1))
+        fi
+        total_tests=$((total_tests + 1))
+    fi
+
+    if [ $total_tests -eq 0 ]; then
+        echo "No integration tests found"
     fi
 
     echo -e "\n${BOLD}Integration Test Summary:${NC}"

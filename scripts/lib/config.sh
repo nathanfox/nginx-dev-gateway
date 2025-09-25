@@ -162,7 +162,7 @@ diff_routes() {
     rm -f "$temp_current" "$temp_new"
 }
 
-# Generate example routes
+# Generate example routes - basic template
 generate_route_template() {
     local output="${1:-example-routes.conf}"
     local namespace="${NAMESPACE:-default}"
@@ -210,6 +210,261 @@ EOF
 
     log_info "Generated route template: $output"
     log_info "Edit this file and apply with: manage.sh update-routes -n $namespace $output"
+}
+
+# Generate routes by discovering services in cluster
+generate_routes_from_discovery() {
+    local output="${1:-discovered-routes.conf}"
+    local dev_namespace="${NAMESPACE:-$(kubectl config view --minify -o jsonpath='{..namespace}')}"
+    local stable_namespace="${2:-default}"
+    local debug_services="${3:-}"  # Comma-separated list of services to debug
+
+    log_info "Discovering services in cluster..."
+    log_info "Developer namespace: $dev_namespace"
+    log_info "Stable namespace: $stable_namespace"
+
+    # Get services in dev namespace
+    local dev_services=$(kubectl get services -n "$dev_namespace" --no-headers 2>/dev/null | awk '{print $1}' | grep -v nginx-gateway || true)
+
+    # Get services in stable namespace
+    local stable_services=$(kubectl get services -n "$stable_namespace" --no-headers 2>/dev/null | awk '{print $1}' || true)
+
+    # Start generating config
+    cat > "$output" << EOF
+# ============================================
+# NGINX Dev Gateway Route Configuration
+# Generated: $(date)
+# Developer namespace: $dev_namespace
+# Stable namespace: $stable_namespace
+# ============================================
+
+EOF
+
+    # Parse debug services list
+    IFS=',' read -ra DEBUG_ARRAY <<< "$debug_services"
+
+    # Helper function to check if service is in debug list
+    is_debug_service() {
+        local svc="$1"
+        for debug_svc in "${DEBUG_ARRAY[@]}"; do
+            [ "$svc" == "$debug_svc" ] && return 0
+        done
+        return 1
+    }
+
+    # Add routes for services in dev namespace (ones being debugged)
+    if [ -n "$dev_services" ]; then
+        cat >> "$output" << EOF
+# ============================================
+# Services being debugged (in $dev_namespace)
+# ============================================
+
+EOF
+        for service in $dev_services; do
+            # Skip if explicitly marked as stable
+            if ! is_debug_service "$service" && [ -n "$debug_services" ]; then
+                continue
+            fi
+
+            # Get service port
+            local port=$(kubectl get service "$service" -n "$dev_namespace" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "8080")
+
+            # Clean service name for path (remove -service suffix if present)
+            local path_name="${service%-service}"
+            # Replace hyphens with underscores for NGINX variable names
+            local var_name="${path_name//-/_}"
+
+            cat >> "$output" << EOF
+# $service - YOUR DEBUG VERSION
+location /api/$path_name/ {
+    set \$${var_name}_upstream ${service}.\${CURRENT_NAMESPACE}.svc.cluster.local:${port};
+    proxy_pass http://\$${var_name}_upstream/;
+    include /etc/nginx/includes/proxy.conf;
+}
+
+EOF
+        done
+    fi
+
+    # Add routes for stable services
+    if [ -n "$stable_services" ]; then
+        cat >> "$output" << EOF
+# ============================================
+# Stable services (in $stable_namespace)
+# ============================================
+
+EOF
+        for service in $stable_services; do
+            # Skip if this service is being debugged
+            if is_debug_service "$service"; then
+                continue
+            fi
+
+            # Get service port
+            local port=$(kubectl get service "$service" -n "$stable_namespace" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "8080")
+
+            # Clean service name for path
+            local path_name="${service%-service}"
+            # Replace hyphens with underscores for NGINX variable names
+            local var_name="${path_name//-/_}"
+
+            cat >> "$output" << EOF
+# $service - STABLE VERSION
+location /api/$path_name/ {
+    set \$${var_name}_upstream ${service}.${stable_namespace}.svc.cluster.local:${port};
+    proxy_pass http://\$${var_name}_upstream/;
+    include /etc/nginx/includes/proxy.conf;
+}
+
+EOF
+        done
+    fi
+
+    # Add WebSocket routes for common patterns
+    cat >> "$output" << 'EOF'
+# ============================================
+# WebSocket routes (if needed)
+# ============================================
+
+# Uncomment and modify as needed:
+# location /ws/notifications {
+#     set $ws_upstream notification-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080;
+#     proxy_pass http://$ws_upstream/;
+#     include /etc/nginx/includes/websocket.conf;
+# }
+
+EOF
+
+    log_success "Generated routes configuration: $output"
+    log_info "Services discovered in $dev_namespace: $(echo $dev_services | wc -w)"
+    log_info "Services discovered in $stable_namespace: $(echo $stable_services | wc -w)"
+    echo ""
+    log_info "Review and edit the generated file, then apply with:"
+    echo "  $SCRIPT_NAME update-routes -n $dev_namespace $output"
+}
+
+# Switch a service between debug and stable versions
+switch_service() {
+    local service_name="$1"
+    local target="${2:-toggle}"  # "debug", "stable", or "toggle"
+    local namespace="${NAMESPACE:-$(kubectl config view --minify -o jsonpath='{..namespace}')}"
+    local stable_namespace="${3:-default}"
+
+    if [ -z "$service_name" ]; then
+        log_error "Service name is required"
+        echo "Usage: $SCRIPT_NAME switch-service <service-name> [debug|stable|toggle] [stable-namespace]"
+        return 1
+    fi
+
+    # Get current routes
+    local current_routes=$(kubectl get configmap nginx-gateway-routes -n "$namespace" -o jsonpath='{.data.example-routes\.conf}' 2>/dev/null || echo "")
+
+    if [ -z "$current_routes" ]; then
+        log_error "No routes found in ConfigMap. Generate routes first with 'generate-routes'"
+        return 1
+    fi
+
+    # Clean service name for path
+    local path_name="${service_name%-service}"
+    # Replace hyphens with underscores for NGINX variable names
+    local var_name="${path_name//-/_}"
+
+    # Determine current state
+    local is_debug=false
+    if echo "$current_routes" | grep -q "location /api/$path_name/" && \
+       echo "$current_routes" | grep -A3 "location /api/$path_name/" | grep -q "\${CURRENT_NAMESPACE}"; then
+        is_debug=true
+    fi
+
+    # Determine target state
+    local switch_to="stable"
+    case "$target" in
+        debug)
+            switch_to="debug"
+            ;;
+        stable)
+            switch_to="stable"
+            ;;
+        toggle)
+            if $is_debug; then
+                switch_to="stable"
+            else
+                switch_to="debug"
+            fi
+            ;;
+        *)
+            log_error "Invalid target: $target. Use 'debug', 'stable', or 'toggle'"
+            return 1
+            ;;
+    esac
+
+    log_info "Switching $service_name to $switch_to version..."
+
+    # Create temporary file
+    local temp_file=$(mktemp)
+    echo "$current_routes" > "$temp_file"
+
+    # Get service port
+    local port=""
+    if [ "$switch_to" == "debug" ]; then
+        port=$(kubectl get service "$service_name" -n "$namespace" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "8080")
+    else
+        port=$(kubectl get service "$service_name" -n "$stable_namespace" -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "8080")
+    fi
+
+    # Create new location block
+    local new_block=""
+    if [ "$switch_to" == "debug" ]; then
+        new_block="# $service_name - DEBUG VERSION (in $namespace)
+location /api/$path_name/ {
+    set \$${var_name}_upstream ${service_name}.\${CURRENT_NAMESPACE}.svc.cluster.local:${port};
+    proxy_pass http://\$${var_name}_upstream/;
+    include /etc/nginx/includes/proxy.conf;
+}"
+    else
+        new_block="# $service_name - STABLE VERSION (in $stable_namespace)
+location /api/$path_name/ {
+    set \$${var_name}_upstream ${service_name}.${stable_namespace}.svc.cluster.local:${port};
+    proxy_pass http://\$${var_name}_upstream/;
+    include /etc/nginx/includes/proxy.conf;
+}"
+    fi
+
+    # Remove existing block if present (including comments)
+    # Use awk to remove the location block and its preceding comment
+    awk '
+    /^# .*(- DEBUG VERSION|- STABLE VERSION).*$/ {
+        if (getline && /^location \/api\/'$path_name'\// ) {
+            # Skip until we find the closing brace
+            while (getline && !match($0, /^}$/)) { }
+            next
+        } else {
+            print prev
+            prev = $0
+            next
+        }
+    }
+    /^location \/api\/'$path_name'\// {
+        # Skip until we find the closing brace
+        while (getline && !match($0, /^}$/)) { }
+        next
+    }
+    { if (NR > 1 && prev) print prev; prev = $0 }
+    END { if (prev) print prev }
+    ' "$temp_file" > "${temp_file}.tmp" && mv "${temp_file}.tmp" "$temp_file"
+
+    # Add new block
+    echo "" >> "$temp_file"
+    echo "$new_block" >> "$temp_file"
+
+    # Apply the updated routes
+    update_routes "$namespace" "$temp_file"
+
+    # Cleanup
+    rm -f "$temp_file"
+
+    log_success "Switched $service_name to $switch_to version"
+    log_info "The service is now routing to: $([ "$switch_to" == "debug" ] && echo "$namespace" || echo "$stable_namespace") namespace"
 }
 
 # Validate routes file syntax

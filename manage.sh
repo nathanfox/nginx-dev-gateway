@@ -130,7 +130,12 @@ COMMANDS:
     diff-routes FILE          Show diff between current and new routes
     list-routes               List current routes
     export-routes [FILE]      Export routes to file
-    generate-routes           Generate example routes template
+    generate-routes           Generate basic routes template
+    discover-routes [OPTIONS]  Auto-discover services and generate routes
+        --stable-namespace NS  Namespace for stable services (default: default)
+        --debug-services LIST  Comma-separated services to debug
+    switch-service NAME [MODE] Toggle service between debug/stable
+        MODE: debug|stable|toggle (default: toggle)
     update-env KEY=VAL...     Update environment variables
     get-env                   Show current environment variables
 
@@ -161,6 +166,12 @@ EXAMPLES:
 
     # Build and push with registry
     $SCRIPT_NAME -r myregistry.io/org build push deploy -n dev-team
+
+    # Discover services and generate routes
+    $SCRIPT_NAME -n dev-john discover-routes --debug-services payment-service,order-service
+
+    # Switch a service to debug version
+    $SCRIPT_NAME -n dev-john switch-service payment-service debug
 
     # Update routes
     $SCRIPT_NAME -n dev-team update-routes my-routes.conf
@@ -271,6 +282,33 @@ main() {
             ;;
         generate-routes)
             generate_route_template "$@"
+            ;;
+        discover-routes)
+            # Parse additional arguments
+            local stable_ns="default"
+            local debug_svcs=""
+            local output_file=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --stable-namespace)
+                        stable_ns="$2"
+                        shift 2
+                        ;;
+                    --debug-services)
+                        debug_svcs="$2"
+                        shift 2
+                        ;;
+                    *)
+                        # This should be the output file
+                        output_file="$1"
+                        shift
+                        ;;
+                esac
+            done
+            generate_routes_from_discovery "$output_file" "$stable_ns" "$debug_svcs"
+            ;;
+        switch-service)
+            switch_service "$@"
             ;;
         update-env)
             update_env "$NAMESPACE" "$@"

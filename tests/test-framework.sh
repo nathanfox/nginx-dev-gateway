@@ -12,6 +12,8 @@ readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[0;33m'
 readonly BLUE='\033[0;34m'
+readonly CYAN='\033[0;36m'
+readonly BOLD='\033[1m'
 readonly NC='\033[0m'
 
 # Test output control
@@ -25,6 +27,23 @@ TEST_CLEANUP="${TEST_CLEANUP:-1}"
 # Test result tracking
 declare -A TEST_RESULTS
 declare -A TEST_TIMES
+
+# Logging functions for tests
+log_info() {
+    echo -e "${CYAN}[INFO]${NC} $@"
+}
+
+log_success() {
+    echo -e "${GREEN}[✓]${NC} $@"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $@"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $@"
+}
 
 # Start test suite
 start_test_suite() {

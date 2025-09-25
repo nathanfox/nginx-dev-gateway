@@ -100,6 +100,78 @@ curl http://localhost:8080/api/users/list
 wscat -c ws://localhost:8080/ws/notifications
 ```
 
+## Typical Development Setup
+
+In most development scenarios, you're debugging 1-3 services in your namespace while using stable versions of other services from a shared namespace:
+
+```
+Your Namespace (dev-john):
+  - payment-service (debugging)
+  - nginx-gateway
+
+Default/Staging Namespace:
+  - user-service (stable)
+  - order-service (stable)
+  - inventory-service (stable)
+  - 20+ other services (stable)
+```
+
+See [Development Workflow Guide](docs/development-workflow.md) for detailed setup instructions.
+
+### Quick Setup for Your Services
+
+#### Option 1: Automatic Service Discovery (Recommended)
+
+```bash
+# Discover services and generate routes automatically
+./manage.sh -n $NAMESPACE discover-routes my-routes.conf \
+  --stable-namespace default \
+  --debug-services payment-service,order-service
+
+# Apply the generated routes
+./manage.sh -n $NAMESPACE update-routes my-routes.conf
+
+# Dynamically switch services between debug and stable
+./manage.sh -n $NAMESPACE switch-service payment-service debug   # Use debug version
+./manage.sh -n $NAMESPACE switch-service payment-service stable  # Use stable version
+./manage.sh -n $NAMESPACE switch-service payment-service toggle  # Toggle between versions
+```
+
+#### Option 2: Manual Configuration
+
+1. **Discover your services**:
+```bash
+# See what's in your namespace (services you're debugging)
+kubectl get svc -n $NAMESPACE --no-headers | awk '{print $1}'
+
+# See what's in the stable namespace
+kubectl get svc -n default --no-headers | awk '{print $1}'
+```
+
+2. **Create your routes** (`my-routes.conf`):
+```nginx
+# Service I'm debugging (in my namespace)
+location /api/payment/ {
+    set $payment_upstream payment-service.${CURRENT_NAMESPACE}.svc.cluster.local:8080;
+    proxy_pass http://$payment_upstream/;
+    include /etc/nginx/includes/proxy.conf;
+}
+
+# Stable services (in default namespace)
+location /api/users/ {
+    set $users_upstream user-service.default.svc.cluster.local:8080;
+    proxy_pass http://$users_upstream/;
+    include /etc/nginx/includes/proxy.conf;
+}
+```
+
+3. **Apply and test**:
+```bash
+./manage.sh -n $NAMESPACE update-routes my-routes.conf
+curl http://localhost:8080/api/payment/   # Your debug version
+curl http://localhost:8080/api/users/     # Stable version
+```
+
 ## Route Configuration
 
 Routes are defined in the ConfigMap `nginx-gateway-routes`. Edit the default routes:
@@ -110,7 +182,7 @@ export NAMESPACE=developer-john
 ./manage.sh update-routes
 
 # Or with flag
-./manage.sh update-routes -n developer-john
+./manage.sh -n developer-john update-routes
 ```
 
 ### Example Route Configuration
@@ -174,6 +246,16 @@ export NAMESPACE=developer-john
 
 # Update routes configuration
 ./manage.sh update-routes [routes-file]
+
+# Auto-discover services and generate routes
+./manage.sh discover-routes [output-file] [options]
+# Options:
+#   --stable-namespace NS    Namespace for stable services (default: default)
+#   --debug-services LIST    Comma-separated services to debug
+
+# Switch service between debug and stable versions
+./manage.sh switch-service <service-name> [mode]
+# Modes: debug, stable, toggle (default: toggle)
 
 # View gateway logs
 ./manage.sh logs
@@ -297,7 +379,7 @@ location /api/custom/ {
 ```
 
 ```bash
-./manage.sh update-routes -n developer-john my-routes.conf
+./manage.sh -n developer-john update-routes my-routes.conf
 ```
 
 ## Troubleshooting

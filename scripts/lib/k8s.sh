@@ -46,7 +46,7 @@ deploy_gateway() {
     wait_for_deployment "$namespace" || return 1
 
     log_info "Gateway deployed successfully"
-    log_info "To access the gateway, run: manage.sh port-forward -n $namespace 8080"
+    log_info "To access the gateway, run: manage.sh port-forward -n $namespace 8000"
     return 0
 }
 
@@ -129,8 +129,8 @@ get_status() {
 # Port forward to gateway
 port_forward() {
     local namespace="${1:-$NAMESPACE}"
-    local local_port="${2:-8080}"
-    local remote_port="${3:-80}"
+    local local_port="${2:-8000}"
+    local remote_port="${3:-8000}"
 
     check_namespace || return 1
     check_kubectl || return 1
@@ -170,19 +170,40 @@ reload_nginx() {
 
     log_info "Reloading NGINX configuration..."
 
-    local success=0
+    # Force kubelet to sync ConfigMap by bumping pod annotation
+    log_info "Forcing ConfigMap sync..."
     for pod in $pods; do
-        log_info "Reloading pod: $pod"
-        if kubectl exec "$pod" -n "$namespace" -- nginx -s reload 2>/dev/null; then
-            log_info "Pod $pod reloaded successfully"
-            success=$((success + 1))
+        kubectl annotate pod "$pod" -n "$namespace" configmap-reload="$(date +%s)" --overwrite 2>/dev/null || true
+    done
+
+    # Give kubelet a moment to detect the annotation change and sync ConfigMap
+    sleep 3
+
+    # Re-process templates and reload NGINX without restarting pods
+    local success=0
+    local reload_success=0
+    for pod in $pods; do
+        log_info "Processing routes for pod: $pod"
+
+        # Re-process route templates from ConfigMap
+        if kubectl exec "$pod" -n "$namespace" -- /docker-entrypoint.sh process-routes 2>/dev/null; then
+            log_info "Routes processed successfully"
+
+            # Reload NGINX to pick up new configuration
+            if kubectl exec "$pod" -n "$namespace" -- nginx -s reload 2>/dev/null; then
+                log_info "Pod $pod reloaded successfully"
+                success=$((success + 1))
+                reload_success=$((reload_success + 1))
+            else
+                log_error "Failed to reload NGINX on pod: $pod"
+            fi
         else
-            log_error "Failed to reload pod: $pod"
+            log_error "Failed to process routes on pod: $pod"
         fi
     done
 
-    if [ "$success" -gt 0 ]; then
-        log_info "Reloaded $success pod(s) successfully"
+    if [ "$reload_success" -gt 0 ]; then
+        log_info "Successfully reloaded $reload_success pod(s) without restart"
         return 0
     else
         log_error "Failed to reload any pods"

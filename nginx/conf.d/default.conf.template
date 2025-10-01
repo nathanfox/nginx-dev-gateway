@@ -1,6 +1,6 @@
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
+    listen ${NGINX_PORT} default_server;
+    listen [::]:${NGINX_PORT} default_server;
     server_name _;
 
     # Health check endpoint
@@ -18,8 +18,8 @@ server {
         deny all;
     }
 
-    # Include route configurations
-    include /etc/nginx/routes/*.conf;
+    # Include route configurations (processed templates from /tmp)
+    include /tmp/nginx/routes/*.conf;
 
     # Default backend (404 for undefined routes)
     location / {

@@ -29,7 +29,7 @@ update_routes() {
 
         # Create ConfigMap from file
         kubectl create configmap "$DEFAULT_CONFIGMAP" \
-            --from-file="example-routes.conf=$routes_file" \
+            --from-file="example-routes.conf.template=$routes_file" \
             --dry-run=client -o yaml | \
             kubectl apply -f - -n "$namespace"
     else
@@ -218,10 +218,12 @@ generate_routes_from_discovery() {
     local dev_namespace="${NAMESPACE:-$(kubectl config view --minify -o jsonpath='{..namespace}')}"
     local stable_namespace="${2:-default}"
     local debug_services="${3:-}"  # Comma-separated list of services to debug
+    local strip_prefix="${4:-true}"  # Whether to strip prefix (default: true)
 
     log_info "Discovering services in cluster..."
     log_info "Developer namespace: $dev_namespace"
     log_info "Stable namespace: $stable_namespace"
+    log_info "Path behavior: $([ "$strip_prefix" = "true" ] && echo "STRIP PREFIX" || echo "PRESERVE PATH")"
 
     # Get services in dev namespace
     local dev_services=$(kubectl get services -n "$dev_namespace" --no-headers 2>/dev/null | awk '{print $1}' | grep -v nginx-gateway || true)
@@ -274,11 +276,23 @@ EOF
             # Replace hyphens with underscores for NGINX variable names
             local var_name="${path_name//-/_}"
 
+            # Determine proxy_pass URL based on strip_prefix setting
+            local proxy_pass_url
+            local path_comment
+            if [ "$strip_prefix" = "true" ]; then
+                proxy_pass_url="http://\$${var_name}_upstream/"
+                path_comment="# Path behavior: STRIP PREFIX (/api/$path_name/ready -> /ready)"
+            else
+                proxy_pass_url="http://\$${var_name}_upstream"
+                path_comment="# Path behavior: PRESERVE PATH (/api/$path_name/ready -> /api/$path_name/ready)"
+            fi
+
             cat >> "$output" << EOF
 # $service - YOUR DEBUG VERSION
+$path_comment
 location /api/$path_name/ {
     set \$${var_name}_upstream ${service}.\${CURRENT_NAMESPACE}.svc.cluster.local:${port};
-    proxy_pass http://\$${var_name}_upstream/;
+    proxy_pass $proxy_pass_url;
     include /etc/nginx/includes/proxy.conf;
 }
 
@@ -308,11 +322,23 @@ EOF
             # Replace hyphens with underscores for NGINX variable names
             local var_name="${path_name//-/_}"
 
+            # Determine proxy_pass URL based on strip_prefix setting
+            local proxy_pass_url
+            local path_comment
+            if [ "$strip_prefix" = "true" ]; then
+                proxy_pass_url="http://\$${var_name}_upstream/"
+                path_comment="# Path behavior: STRIP PREFIX (/api/$path_name/ready -> /ready)"
+            else
+                proxy_pass_url="http://\$${var_name}_upstream"
+                path_comment="# Path behavior: PRESERVE PATH (/api/$path_name/ready -> /api/$path_name/ready)"
+            fi
+
             cat >> "$output" << EOF
 # $service - STABLE VERSION
+$path_comment
 location /api/$path_name/ {
     set \$${var_name}_upstream ${service}.${stable_namespace}.svc.cluster.local:${port};
-    proxy_pass http://\$${var_name}_upstream/;
+    proxy_pass $proxy_pass_url;
     include /etc/nginx/includes/proxy.conf;
 }
 
@@ -357,7 +383,7 @@ switch_service() {
     fi
 
     # Get current routes
-    local current_routes=$(kubectl get configmap nginx-gateway-routes -n "$namespace" -o jsonpath='{.data.example-routes\.conf}' 2>/dev/null || echo "")
+    local current_routes=$(kubectl get configmap nginx-gateway-routes -n "$namespace" -o jsonpath='{.data.example-routes\.conf\.template}' 2>/dev/null || echo "")
 
     if [ -z "$current_routes" ]; then
         log_error "No routes found in ConfigMap. Generate routes first with 'generate-routes'"

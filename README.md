@@ -2,6 +2,22 @@
 
 A lightweight, namespace-aware NGINX-based API gateway for Kubernetes that enables developers to access multiple microservices through a single `kubectl port-forward` command.
 
+## What's New in v0.3.0
+
+🎉 **Major improvements for developer experience:**
+
+- **⚡ Hot Reload Without Restart**: Update routes without restarting pods - your port-forward stays alive!
+- **🔧 Configurable Port**: Default port changed to 8000 (configurable via `NGINX_PORT` env var) to avoid conflicts with common dev tools
+- **🎨 Path Stripping Control**: New `--strip-prefix` / `--no-strip-prefix` flags for `discover-routes` with clear documentation in generated files
+- **🐛 Bug Fixes**:
+  - Route template processing now works correctly with `${CURRENT_NAMESPACE}` substitution
+  - NGINX access logs now show proper values (envsubst no longer breaks NGINX variables)
+  - ConfigMap changes sync instantly via annotation-based forcing
+
+**Breaking Changes:**
+- Default port changed from 8080 → 8000 (update your port-forward commands)
+- Route ConfigMap key changed to `.template` extension (re-run `update-routes` to migrate)
+
 ## Features
 
 - 🚀 **Single Entry Point**: One `kubectl port-forward` to access all services
@@ -85,19 +101,19 @@ Or specify namespace explicitly:
 
 ```bash
 # With environment variable set
-./manage.sh port-forward 8080
+./manage.sh port-forward 8000
 
 # Or with explicit namespace
-./manage.sh port-forward -n developer-john 8080
+./manage.sh port-forward -n developer-john 8000
 ```
 
 ### 4. Access Your Services
 
 ```bash
 # Access services through the gateway
-curl http://localhost:8080/api/echo/hello
-curl http://localhost:8080/api/users/list
-wscat -c ws://localhost:8080/ws/notifications
+curl http://localhost:8000/api/echo/hello
+curl http://localhost:8000/api/users/list
+wscat -c ws://localhost:8000/ws/notifications
 ```
 
 ## Typical Development Setup
@@ -168,8 +184,8 @@ location /api/users/ {
 3. **Apply and test**:
 ```bash
 ./manage.sh -n $NAMESPACE update-routes my-routes.conf
-curl http://localhost:8080/api/payment/   # Your debug version
-curl http://localhost:8080/api/users/     # Stable version
+curl http://localhost:8000/api/payment/   # Your debug version
+curl http://localhost:8000/api/users/     # Stable version
 ```
 
 ## Route Configuration
@@ -302,11 +318,11 @@ Each developer gets their own gateway instance in their namespace:
 ```bash
 # John's gateway
 ./manage.sh deploy -n developer-john
-./manage.sh port-forward -n developer-john 8080
+./manage.sh port-forward -n developer-john 8000
 
 # Jane's gateway
 ./manage.sh deploy -n developer-jane
-./manage.sh port-forward -n developer-jane 8081
+./manage.sh port-forward -n developer-jane 8001
 ```
 
 ### Microservices Access
@@ -319,11 +335,11 @@ kubectl port-forward svc/order-service 8082:80
 kubectl port-forward svc/payment-service 8083:80
 
 # Use one gateway:
-kubectl port-forward svc/nginx-gateway 8080:80
+kubectl port-forward svc/nginx-gateway 8000:8000
 # Access all services via paths:
-# http://localhost:8080/api/users
-# http://localhost:8080/api/orders
-# http://localhost:8080/api/payments
+# http://localhost:8000/api/users
+# http://localhost:8000/api/orders
+# http://localhost:8000/api/payments
 ```
 
 ## Advanced Configuration
@@ -408,7 +424,7 @@ location /api/custom/ {
 
 2. **Connection Refused**
    - Port-forward not active
-   - Run: `./manage.sh port-forward -n <namespace> 8080`
+   - Run: `./manage.sh port-forward -n <namespace> 8000`
 
 3. **404 Not Found**
    - Route not configured

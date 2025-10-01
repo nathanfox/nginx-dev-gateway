@@ -140,7 +140,7 @@ COMMANDS:
     get-env                   Show current environment variables
 
     === Port Forwarding ===
-    port-forward [LOCAL:REMOTE]  Forward local port to gateway (default: 8080:80)
+    port-forward [LOCAL:REMOTE]  Forward local port to gateway (default: 8000:8000)
     pf                          Alias for port-forward
 
     === Validation & Testing ===
@@ -183,7 +183,7 @@ EXAMPLES:
     $SCRIPT_NAME -n dev-team test all
 
     # Port forward
-    $SCRIPT_NAME -n dev-team port-forward 8080:80
+    $SCRIPT_NAME -n dev-team port-forward 8000:8000
 
 ENVIRONMENT VARIABLES:
     NAMESPACE               Default namespace for operations
@@ -288,6 +288,7 @@ main() {
             local stable_ns="default"
             local debug_svcs=""
             local output_file=""
+            local strip_prefix="true"  # Default: strip prefix
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     --stable-namespace)
@@ -298,6 +299,14 @@ main() {
                         debug_svcs="$2"
                         shift 2
                         ;;
+                    --strip-prefix)
+                        strip_prefix="true"
+                        shift
+                        ;;
+                    --no-strip-prefix)
+                        strip_prefix="false"
+                        shift
+                        ;;
                     *)
                         # This should be the output file
                         output_file="$1"
@@ -305,7 +314,7 @@ main() {
                         ;;
                 esac
             done
-            generate_routes_from_discovery "$output_file" "$stable_ns" "$debug_svcs"
+            generate_routes_from_discovery "$output_file" "$stable_ns" "$debug_svcs" "$strip_prefix"
             ;;
         switch-service)
             switch_service "$@"
@@ -320,7 +329,7 @@ main() {
         # Port forwarding
         port-forward|pf)
             # Parse port specification
-            local ports="${1:-8080:80}"
+            local ports="${1:-8000:8000}"
             local local_port=$(echo "$ports" | cut -d: -f1)
             local remote_port=$(echo "$ports" | cut -d: -f2)
             port_forward "$NAMESPACE" "$local_port" "$remote_port"
